@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Charlotte Apartment Scout — Brian & Angela</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+:root { --bg:#0f1419; --card:#1a2332; --accent:#4a9eff; --text:#e7ecf3; --muted:#8b98a5; --good:#3dd68c; --warn:#f0b429; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); font-size:16px; line-height:1.4; }
+header { padding:12px 16px; background:#15202b; border-bottom:1px solid #2a3a4d; position:sticky; top:0; z-index:1000; }
+h1 { margin:0; font-size:1.15rem; }
+.sub { color:var(--muted); font-size:0.8rem; margin-top:2px; }
+nav { display:flex; gap:6px; padding:8px 16px; background:#15202b; overflow-x:auto; }
+nav button { flex:0 0 auto; background:transparent; border:1px solid #2a3a4d; color:var(--text); padding:8px 14px; border-radius:20px; font-size:0.85rem; }
+nav button.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+.view { display:none; padding:12px 16px 80px; }
+.view.active { display:block; }
+#map { height:55vh; min-height:280px; border-radius:12px; margin-bottom:12px; }
+.card { background:var(--card); border-radius:12px; padding:14px; margin-bottom:12px; border:1px solid #2a3a4d; }
+.card h3 { margin:0 0 6px; font-size:1.05rem; }
+.meta { color:var(--muted); font-size:0.8rem; }
+label { display:block; font-size:0.8rem; color:var(--muted); margin:8px 0 2px; }
+input, textarea, select { width:100%; background:#0d1117; border:1px solid #2a3a4d; color:var(--text); padding:10px; border-radius:8px; font-size:1rem; }
+textarea { min-height:70px; resize:vertical; }
+.row { display:flex; gap:8px; }
+.row > * { flex:1; }
+button.primary { background:var(--accent); color:#fff; border:none; padding:12px; border-radius:8px; width:100%; font-size:1rem; margin-top:10px; }
+button.small { background:#2a3a4d; color:var(--text); border:none; padding:6px 10px; border-radius:6px; font-size:0.8rem; }
+.stars { display:flex; gap:4px; }
+.stars span { cursor:pointer; font-size:1.4rem; color:#444; }
+.stars span.on { color:#f0b429; }
+.badge { display:inline-block; background:#2a3a4d; padding:2px 8px; border-radius:10px; font-size:0.75rem; margin-right:4px; }
+.badge.fav { background:#f0b429; color:#000; }
+.badge.appt { background:var(--good); color:#000; }
+table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+th, td { text-align:left; padding:8px 4px; border-bottom:1px solid #2a3a4d; vertical-align:top; }
+.note { background:#1e2a3a; padding:8px; border-radius:6px; font-size:0.85rem; margin-top:6px; }
+.route-step { border-left:3px solid var(--accent); padding:8px 12px; margin:8px 0; background:#1a2332; border-radius:0 8px 8px 0; }
+.estimate { color:var(--warn); font-size:0.75rem; }
+footer { position:fixed; bottom:0; left:0; right:0; background:#15202b; border-top:1px solid #2a3a4d; padding:8px 16px; display:flex; gap:8px; }
+footer button { flex:1; background:#2a3a4d; color:var(--text); border:none; padding:10px; border-radius:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Charlotte Apartment Scout</h1>
+  <div class="sub">Brian & Angela · Shared notes · Estimates only · Private</div>
+</header>
+<nav>
+  <button class="active" data-view="map">Map</button>
+  <button data-view="list">List</button>
+  <button data-view="compare">Compare</button>
+  <button data-view="route">Route</button>
+  <button data-view="add">Add</button>
+</nav>
+
+<div id="map-view" class="view active">
+  <div id="map"></div>
+  <div class="card">
+    <div class="meta">Work reference: South Tryon & East 4th Street (intersection pin, not a building entrance).</div>
+    <div class="meta">Walking distances & times are straight-line estimates × 1.3 street factor at 3 mph. Labelled as estimates.</div>
+    <div id="selected-info" class="note" style="display:none;"></div>
+  </div>
+</div>
+
+<div id="list-view" class="view">
+  <div id="list-container"></div>
+</div>
+
+<div id="compare-view" class="view">
+  <div class="card">
+    <h3>Side-by-side comparison</h3>
+    <div class="meta">Individual ratings stay separate. Blank fields left empty on purpose.</div>
+    <div style="overflow-x:auto;">
+      <table id="compare-table">
+        <thead><tr><th>Apartment</th><th>Brian</th><th>Angela</th><th>Rent / Fees</th><th>Avail</th><th>Appt</th><th>Fav</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="route-view" class="view">
+  <div class="card">
+    <h3>Scouting route from Hilton Charlotte Uptown</h3>
+    <div class="meta">222 East Third Street · Fixed: The Mint 425 appointment Saturday 7 Nov 2026, 2:00 PM EST (target arrival 1:45 PM).</div>
+    <div id="route-steps"></div>
+    <p class="estimate">Times and walking segments are estimates only. Allow buffer for traffic lights, elevators, and exterior-only stops.</p>
+  </div>
+</div>
+
+<div id="add-view" class="view">
+  <div class="card">
+    <h3>Add or edit apartment</h3>
+    <form id="apt-form">
+      <input type="hidden" id="edit-id">
+      <label>Name</label><input id="f-name" required>
+      <label>Address</label><input id="f-address" required>
+      <label>Latitude</label><input id="f-lat" type="number" step="any" required>
+      <label>Longitude</label><input id="f-lng" type="number" step="any" required>
+      <label>Website / listing link</label><input id="f-link" type="url">
+      <label>Photo URLs (one per line)</label><textarea id="f-photos"></textarea>
+      <label>Notes</label><textarea id="f-notes"></textarea>
+      <div class="row">
+        <div><label>Base rent</label><input id="f-rent" placeholder="e.g. 1800"></div>
+        <div><label>Fees / other</label><input id="f-fees" placeholder="parking, pet, etc."></div>
+      </div>
+      <label>Availability</label><input id="f-avail" placeholder="leave blank if unknown">
+      <label>Tour appointment (datetime)</label><input id="f-appt" type="datetime-local">
+      <label>Exterior-only walk-by?</label>
+      <select id="f-exterior"><option value="no">No — interior tour possible</option><option value="yes">Yes — exterior only</option></select>
+      <label>Favorite (shared)</label>
+      <select id="f-fav"><option value="no">No</option><option value="yes">Yes</option></select>
+      <button type="submit" class="primary">Save apartment</button>
+    </form>
+  </div>
+  <div class="card">
+    <button class="small" id="export-btn">Export data (JSON)</button>
+    <button class="small" id="import-btn">Import data</button>
+    <input type="file" id="import-file" accept=".json" style="display:none">
+  </div>
+</div>
+
+<footer>
+  <button id="clear-selection">Clear selection</button>
+  <button id="reset-data" style="color:#f87171">Reset to starter</button>
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const WORK = { name: "Work reference — S Tryon & E 4th", lat: 35.2262, lng: -80.8441, type: "work" };
+const HILTON = { name: "Hilton Charlotte Uptown", address: "222 East Third Street", lat: 35.22393, lng: -80.84376, type: "start" };
+
+const STARTER = [
+  { id: "trella", name: "Trella Uptown", address: "426 N Tryon Street", lat: 35.22978, lng: -80.83860, link: "https://www.greystar.com/trella-uptown-apartments-charlotte-nc/p_22842", photos: [], notes: "", rent: "", fees: "", avail: "", appt: "", exterior: "no", fav: "no", brian: 0, angela: 0 },
+  { id: "mint", name: "The Mint 425", address: "425 W Trade Street", lat: 35.23007, lng: -80.84691, link: "https://www.themint425.com/", photos: [], notes: "Appointment Saturday 7 Nov 2026 2:00 PM EST. Target arrival 1:45 PM.", rent: "", fees: "", avail: "", appt: "2026-11-07T14:00", exterior: "no", fav: "no", brian: 0, angela: 0 },
+  { id: "francis", name: "The Francis", address: "400 E Brooklyn Village Avenue", lat: 35.22060, lng: -80.84626, link: "", photos: [], notes: "", rent: "", fees: "", avail: "", appt: "", exterior: "no", fav: "no", brian: 0, angela: 0 },
+  { id: "ascher", name: "The Ascher", address: "640 N Church Street", lat: 35.23214, lng: -80.83730, link: "https://www.greystar.com/the-ascher-uptown-apartments-charlotte-nc/p_14711", photos: [], notes: "", rent: "", fees: "", avail: "", appt: "", exterior: "no", fav: "no", brian: 0, angela: 0 }
+];
+
+let apartments = JSON.parse(localStorage.getItem("cltApts") || "null") || STARTER;
+let map, markers = {};
+
+function save() { localStorage.setItem("cltApts", JSON.stringify(apartments)); }
+
+function haversine(a, b) {
+  const R = 3958.8; // miles
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const lat1 = a.lat * Math.PI / 180, lat2 = b.lat * Math.PI / 180;
+  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function walkEst(miles) {
+  const street = miles * 1.3;
+  const mins = Math.round(street / 3 * 60);
+  return { miles: street.toFixed(2), mins };
+}
+
+function initMap() {
+  map = L.map("map").setView([35.2265, -80.842], 15);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap", maxZoom: 19
+  }).addTo(map);
+
+  L.marker([WORK.lat, WORK.lng], { icon: L.divIcon({ className: "", html: "<div style='background:#f0b429;color:#000;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:bold'>WORK</div>", iconSize: [50,20] }) })
+    .addTo(map).bindPopup("<b>Work reference</b><br>South Tryon & East 4th Street<br><i>Intersection pin — not a building entrance</i>");
+
+  L.marker([HILTON.lat, HILTON.lng], { icon: L.divIcon({ className: "", html: "<div style='background:#3dd68c;color:#000;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:bold'>HILTON</div>", iconSize: [55,20] }) })
+    .addTo(map).bindPopup("<b>Hilton Charlotte Uptown</b><br>222 East Third Street<br>Start of scouting route");
+
+  refreshMarkers();
+}
+
+function refreshMarkers() {
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  markers = {};
+  apartments.forEach(a => {
+    const est = walkEst(haversine(a, WORK));
+    const m = L.marker([a.lat, a.lng]).addTo(map);
+    m.bindPopup(`<b>${a.name}</b><br>${a.address}<br>Est. walk to work: ${est.miles} mi / ${est.mins} min`);
+    m.on("click", () => showSelected(a));
+    markers[a.id] = m;
+  });
+}
+
+function showSelected(a) {
+  const est = walkEst(haversine(a, WORK));
+  document.getElementById("selected-info").style.display = "block";
+  document.getElementById("selected-info").innerHTML = `
+    <strong>${a.name}</strong><br>
+    ${a.address}<br>
+    <span class="estimate">Est. walking to work reference: ${est.miles} miles / ~${est.mins} min (straight-line × 1.3 @ 3 mph)</span>
+    ${a.notes ? `<div class="note">${a.notes}</div>` : ""}
+  `;
+}
+
+function renderList() {
+  const c = document.getElementById("list-container");
+  c.innerHTML = apartments.map(a => {
+    const est = walkEst(haversine(a, WORK));
+    const photos = (a.photos || []).filter(Boolean).map(u => `<img src="${u}" style="max-width:100%;border-radius:8px;margin:4px 0">`).join("");
+    return `
+      <div class="card" data-id="${a.id}">
+        <h3>${a.name} ${a.fav === "yes" ? '<span class="badge fav">★ Fav</span>' : ""} ${a.appt ? '<span class="badge appt">Appt</span>' : ""} ${a.exterior === "yes" ? '<span class="badge">Exterior</span>' : ""}</h3>
+        <div class="meta">${a.address}</div>
+        <div class="estimate">Est. to work: ${est.miles} mi / ~${est.mins} min</div>
+        ${a.link ? `<div><a href="${a.link}" target="_blank" style="color:var(--accent)">Listing</a></div>` : ""}
+        ${photos}
+        ${a.notes ? `<div class="note">${a.notes}</div>` : ""}
+        <div class="meta">Rent: ${a.rent || "—"} · Fees: ${a.fees || "—"} · Avail: ${a.avail || "—"}</div>
+        ${a.appt ? `<div class="meta">Appointment: ${new Date(a.appt).toLocaleString()}</div>` : ""}
+        <div style="margin-top:8px">
+          <div>Brian: <span class="stars" data-user="brian" data-id="${a.id}">${starHtml(a.brian)}</span></div>
+          <div>Angela: <span class="stars" data-user="angela" data-id="${a.id}">${starHtml(a.angela)}</span></div>
+        </div>
+        <button class="small" onclick="editApt('${a.id}')">Edit</button>
+        <button class="small" onclick="deleteApt('${a.id}')">Delete</button>
+      </div>`;
+  }).join("");
+
+  document.querySelectorAll(".stars").forEach(el => {
+    el.addEventListener("click", e => {
+      if (e.target.dataset.star) {
+        const id = el.dataset.id, user = el.dataset.user, val = +e.target.dataset.star;
+        const apt = apartments.find(x => x.id === id);
+        apt[user] = val;
+        save(); renderList(); renderCompare();
+      }
+    });
+  });
+}
+
+function starHtml(n) {
+  return [1,2,3,4,5].map(i => `<span data-star="${i}" class="${i <= n ? "on" : ""}">★</span>`).join("");
+}
+
+function renderCompare() {
+  const tbody = document.querySelector("#compare-table tbody");
+  tbody.innerHTML = apartments.map(a => `
+    <tr>
+      <td><strong>${a.name}</strong><br><span class="meta">${a.address}</span></td>
+      <td>${"★".repeat(a.brian)}${"☆".repeat(5-a.brian)}</td>
+      <td>${"★".repeat(a.angela)}${"☆".repeat(5-a.angela)}</td>
+      <td>${a.rent || "—"}<br><span class="meta">${a.fees || ""}</span></td>
+      <td>${a.avail || "—"}</td>
+      <td>${a.appt ? new Date(a.appt).toLocaleString() : "—"}</td>
+      <td>${a.fav === "yes" ? "★" : ""}</td>
+    </tr>`).join("");
+}
+
+function renderRoute() {
+  const steps = document.getElementById("route-steps");
+  // Simple efficient order: Hilton → nearby north/west first, then Mint fixed, then others
+  const ordered = [
+    ...apartments.filter(a => a.id !== "mint").sort((a,b) => haversine(HILTON, a) - haversine(HILTON, b)),
+    apartments.find(a => a.id === "mint")
+  ].filter(Boolean);
+
+  let html = `<div class="route-step"><strong>Start: Hilton Charlotte Uptown</strong><br>222 East Third Street<br>Depart with buffer for 1:45 PM arrival at The Mint 425.</div>`;
+  let prev = HILTON;
+  ordered.forEach((a, i) => {
+    const seg = walkEst(haversine(prev, a));
+    const toWork = walkEst(haversine(a, WORK));
+    html += `<div class="route-step">
+      <strong>${i+1}. ${a.name}</strong> ${a.exterior === "yes" ? "(exterior walk-by)" : ""}
+      <br>${a.address}
+      <br><span class="estimate">Est. from previous: ${seg.miles} mi / ~${seg.mins} min</span>
+      <br><span class="estimate">Est. to work reference: ${toWork.miles} mi / ~${toWork.mins} min</span>
+      ${a.id === "mint" ? `<br><strong>FIXED: Saturday 7 Nov 2026, 2:00 PM EST · target arrival 1:45 PM</strong>` : ""}
+      ${a.notes ? `<div class="note">${a.notes}</div>` : ""}
+    </div>`;
+    prev = a;
+  });
+  steps.innerHTML = html;
+}
+
+function editApt(id) {
+  const a = apartments.find(x => x.id === id);
+  if (!a) return;
+  document.getElementById("edit-id").value = a.id;
+  document.getElementById("f-name").value = a.name;
+  document.getElementById("f-address").value = a.address;
+  document.getElementById("f-lat").value = a.lat;
+  document.getElementById("f-lng").value = a.lng;
+  document.getElementById("f-link").value = a.link || "";
+  document.getElementById("f-photos").value = (a.photos || []).join("\n");
+  document.getElementById("f-notes").value = a.notes || "";
+  document.getElementById("f-rent").value = a.rent || "";
+  document.getElementById("f-fees").value = a.fees || "";
+  document.getElementById("f-avail").value = a.avail || "";
+  document.getElementById("f-appt").value = a.appt || "";
+  document.getElementById("f-exterior").value = a.exterior || "no";
+  document.getElementById("f-fav").value = a.fav || "no";
+  switchView("add");
+}
+
+function deleteApt(id) {
+  if (confirm("Delete this apartment?")) {
+    apartments = apartments.filter(x => x.id !== id);
+    save(); refreshAll();
+  }
+}
+
+document.getElementById("apt-form").onsubmit = e => {
+  e.preventDefault();
+  const id = document.getElementById("edit-id").value || "apt_" + Date.now();
+  const data = {
+    id,
+    name: document.getElementById("f-name").value.trim(),
+    address: document.getElementById("f-address").value.trim(),
+    lat: +document.getElementById("f-lat").value,
+    lng: +document.getElementById("f-lng").value,
+    link: document.getElementById("f-link").value.trim(),
+    photos: document.getElementById("f-photos").value.split("\n").map(s => s.trim()).filter(Boolean),
+    notes: document.getElementById("f-notes").value.trim(),
+    rent: document.getElementById("f-rent").value.trim(),
+    fees: document.getElementById("f-fees").value.trim(),
+    avail: document.getElementById("f-avail").value.trim(),
+    appt: document.getElementById("f-appt").value,
+    exterior: document.getElementById("f-exterior").value,
+    fav: document.getElementById("f-fav").value,
+    brian: (apartments.find(x => x.id === id) || {}).brian || 0,
+    angela: (apartments.find(x => x.id === id) || {}).angela || 0
+  };
+  const idx = apartments.findIndex(x => x.id === id);
+  if (idx >= 0) apartments[idx] = data; else apartments.push(data);
+  save(); document.getElementById("apt-form").reset(); document.getElementById("edit-id").value = "";
+  refreshAll(); switchView("list");
+};
+
+function refreshAll() {
+  refreshMarkers();
+  renderList();
+  renderCompare();
+  renderRoute();
+}
+
+function switchView(name) {
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+  document.getElementById(name + "-view").classList.add("active");
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.view === name));
+  if (name === "map") setTimeout(() => map.invalidateSize(), 100);
+}
+
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => switchView(b.dataset.view));
+
+document.getElementById("export-btn").onclick = () => {
+  const blob = new Blob([JSON.stringify(apartments, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "charlotte-apartments.json";
+  a.click();
+};
+
+document.getElementById("import-btn").onclick = () => document.getElementById("import-file").click();
+document.getElementById("import-file").onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      apartments = JSON.parse(r.result);
+      save(); refreshAll(); alert("Imported");
+    } catch { alert("Invalid JSON"); }
+  };
+  r.readAsText(f);
+};
+
+document.getElementById("clear-selection").onclick = () => {
+  document.getElementById("selected-info").style.display = "none";
+};
+document.getElementById("reset-data").onclick = () => {
+  if (confirm("Reset to the four starter apartments? This clears your notes and ratings.")) {
+    apartments = JSON.parse(JSON.stringify(STARTER));
+    save(); refreshAll();
+  }
+};
+
+initMap();
+refreshAll();
+</script>
+</body>
+</html>
